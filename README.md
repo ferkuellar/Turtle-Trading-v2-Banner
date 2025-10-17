@@ -32,9 +32,12 @@ Su propósito no es solo replicar la estrategia, sino **reconstruirla con precis
 
 A nivel matemático, el sistema se basa en:
 
-\[
-Entry_{breakout} = \max(High_{t-L}) \quad \text{y} \quad Exit_{trailing} = \min(Low_{t-10})
-\]
+<div align="center">
+
+<b>Q</b> = (A × r) / (ATR × k)
+
+</div>
+
 
 donde \(L\) corresponde a 20 o 55 períodos según la condición de la **última operación (loss/win)**, siguiendo el principio original de Dennis: *“Reduce la sensibilidad tras una pérdida, expande la exposición tras una ganancia.”*
 
