@@ -1,4 +1,4 @@
-![Turtle Trading v2 Banner](./A_promotional_banner_graphic_for_an_updated_tradin.png)
+![Turtle Trading v2 Banner](./turtlebanner.png)
 
 # 🐢 Turtle Trading v2 — Rebalanced Long & Short [FK]
 
