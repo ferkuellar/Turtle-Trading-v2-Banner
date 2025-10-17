@@ -1,0 +1,275 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © FernandoCuellar
+
+//@version=6
+strategy("Turtle Trading v2 — Rebalanced Long & Short [FK]", overlay=true, pyramiding=3, calc_on_every_tick=true)
+
+// ===== Helpers sin 'max/min' globales =====
+max2(a, b) => a > b ? a : b
+min2(a, b) => a < b ? a : b
+
+// =========================
+// Inputs
+// =========================
+grpMode = "Modo / Reglas"
+use20OnlyAfterLoss = input.bool(true,  "20-día solo tras pérdida (aplica a ambos lados)", group=grpMode)
+directionMode      = input.string("Both", "Dirección habilitada", options=["Both","Long only","Short only"], group=grpMode)
+
+grpRisk = "Sizing / Riesgo"
+risk_pct = input.float(0.5, "Riesgo % por trade", minval=0.05, maxval=5, step=0.05, group=grpRisk)
+account  = input.float(3000, "Cuenta (USD) para sizing", step=100, group=grpRisk)
+
+grpFilters = "Filtros"
+useMAFilter = input.bool(true, "Filtro de tendencia (MA200)", group=grpFilters)
+maLen       = input.int(200, "MA Len", minval=50, group=grpFilters)
+dateFrom    = input.time(timestamp("2020-01-01T00:00:00"), "Backtest desde", group=grpFilters)
+sessionStr  = input.session("0000-2359", "Sesión (hora exch)", group=grpFilters)
+
+grpAdv = "Avanzado"
+atrLen    = input.int(25, "ATR (Wilder) Len (N)", minval=1, group=grpAdv)
+stopMultN = input.float(2.5, "Stop inicial (x N)", step=0.25, group=grpAdv)
+addStepN  = input.float(0.75, "Paso entre adds (x N)", step=0.25, group=grpAdv)
+maxUnits  = input.int(3, "Máx. unidades (incluye inicial)", minval=1, maxval=3, group=grpAdv)
+
+grpSym  = "Reglas de tamaño (símbolo)"
+qtyStep = input.float(0.001, "Paso de cantidad (lot step)", step=0.000001, group=grpSym)
+minQty  = input.float(0.001, "Cantidad mínima (min lot)",   step=0.000001, group=grpSym)
+
+grpAlerts = "Alertas"
+enableAlerts = input.bool(true, "Activar alertas (alert())", group=grpAlerts)
+
+// =========================
+// Contexto y filtros
+// =========================
+inDate = time >= dateFrom
+inSess = not na(time(timeframe.period, sessionStr))
+ma     = ta.sma(close, maLen)
+
+allowLong  = directionMode == "Both" or directionMode == "Long only"
+allowShort = directionMode == "Both" or directionMode == "Short only"
+
+trendLongOK  = not useMAFilter or close > ma
+trendShortOK = not useMAFilter or close < ma
+
+// =========================
+// Regla 20d/55d según última operación
+// =========================
+var float prevNet = na
+netNow      = strategy.netprofit
+tradeClosed = not na(prevNet) and netNow != prevNet
+lastPL      = tradeClosed ? (netNow - prevNet) : 0.0
+var bool lastTradeLoss = true
+if barstate.isconfirmed
+    prevNet := netNow
+if tradeClosed
+    lastTradeLoss := (lastPL < 0)
+
+// Lentes de entrada/salida
+entry20 = 20
+entry55 = 55
+exitLen = 10
+use55        = use20OnlyAfterLoss and not lastTradeLoss
+effEntryLen  = use55 ? entry55 : entry20
+
+// =========================
+// Donchian (sin look-ahead)
+// =========================
+upperEntry = ta.highest(high, effEntryLen)[1]  // breakout long
+lowerEntry = ta.lowest(low,  effEntryLen)[1]   // breakdown short
+upperExit  = ta.highest(high, exitLen)[1]      // trailing short
+lowerExit  = ta.lowest(low,  exitLen)[1]       // trailing long
+
+// =========================
+// ATR y sizing (inputs de paso y mínimo; sin syminfo.*)
+// =========================
+N       = ta.atr(atrLen)
+riskUSD = account * (risk_pct / 100.0)
+rawQty  = N > 0 ? (riskUSD / (stopMultN * N)) : 0.0
+
+lotstep = qtyStep
+minlot  = max2(minQty, lotstep)
+
+roundQty(q) =>
+    qRounded = math.round(q / lotstep) * lotstep
+    max2(qRounded, minlot)
+
+qtyPerUnit = roundQty(rawQty)
+
+// =========================
+// Estado del trade
+// =========================
+var float tradeN       = na
+var float nextAddPrice = na
+var int   unitsAdded   = 0
+
+isLong  = strategy.position_size > 0
+isShort = strategy.position_size < 0
+isFlat  = strategy.position_size == 0
+
+if isFlat
+    unitsAdded   := 0
+    nextAddPrice := na
+    tradeN       := na
+
+// =========================
+// Señales
+// =========================
+longSignal  = inDate and inSess and allowLong  and trendLongOK  and not na(upperEntry) and high > upperEntry
+shortSignal = inDate and inSess and allowShort and trendShortOK and not na(lowerEntry) and low  < lowerEntry
+
+// =========================
+// Entradas iniciales con órdenes stop en canales
+// =========================
+if isFlat and longSignal
+    strategy.entry("L-1", strategy.long,  stop=upperEntry, qty=qtyPerUnit)
+    tradeN       := N[1]
+    unitsAdded   := 1
+    nextAddPrice := upperEntry + addStepN * tradeN
+
+if isFlat and shortSignal
+    strategy.entry("S-1", strategy.short, stop=lowerEntry, qty=qtyPerUnit)
+    tradeN       := N[1]
+    unitsAdded   := 1
+    nextAddPrice := lowerEntry - addStepN * tradeN
+
+// =========================
+// Piramidación
+// =========================
+posUnits = qtyPerUnit > 0 ? math.round(math.abs(strategy.position_size) / qtyPerUnit) : 0
+
+if isLong and unitsAdded < maxUnits and posUnits == unitsAdded and not na(nextAddPrice) and tradeN > 0 and close >= nextAddPrice
+    strategy.entry("L-" + str.tostring(unitsAdded + 1), strategy.long, qty=qtyPerUnit)
+    unitsAdded   += 1
+    nextAddPrice += addStepN * tradeN
+
+if isShort and unitsAdded < maxUnits and posUnits == unitsAdded and not na(nextAddPrice) and tradeN > 0 and close <= nextAddPrice
+    strategy.entry("S-" + str.tostring(unitsAdded + 1), strategy.short, qty=qtyPerUnit)
+    unitsAdded   += 1
+    nextAddPrice -= addStepN * tradeN
+
+// =========================
+// Exits
+// =========================
+useN = nz(tradeN, N)
+
+if isLong
+    stopInitL  = strategy.position_avg_price - stopMultN * useN
+    stopTrailL = lowerExit
+    stopLong   = max2(stopInitL, stopTrailL)
+    strategy.exit("XL", from_entry="L-1", stop=stopLong)
+
+if isShort
+    stopInitS  = strategy.position_avg_price + stopMultN * useN
+    stopTrailS = upperExit
+    stopShort  = min2(stopInitS, stopTrailS)
+    strategy.exit("XS", from_entry="S-1", stop=stopShort)
+
+// =========================
+// MARCADORES VISUALES EN EL GRÁFICO
+// =========================
+plotshape(isFlat and longSignal,  title="Long Signal",  style=shape.triangleup,   size=size.small, color=color.lime, location=location.belowbar, text="LONG")
+plotshape(isFlat and shortSignal, title="Short Signal", style=shape.triangledown, size=size.small, color=color.red,  location=location.abovebar, text="SHORT")
+
+plotshape(isLong  and not na(nextAddPrice) and close >= nextAddPrice,  title="ADD Long",  style=shape.circle, size=size.tiny, color=color.new(color.lime, 0), location=location.belowbar, text="ADD")
+plotshape(isShort and not na(nextAddPrice) and close <= nextAddPrice,  title="ADD Short", style=shape.circle, size=size.tiny, color=color.new(color.red,  0), location=location.abovebar, text="ADD")
+
+// =========================
+// Semáforos (Long & Short) centrados + OK y fade [FK]
+// =========================
+condContext     = inDate and inSess
+condLongTrend   = trendLongOK  and allowLong
+condShortTrend  = trendShortOK and allowShort
+condLongSignal  = not na(upperEntry) and high > upperEntry and qtyPerUnit > 0
+condShortSignal = not na(lowerEntry) and low  < lowerEntry and qtyPerUnit > 0
+
+okLong  = condContext and condLongTrend  and condLongSignal
+okShort = condContext and condShortTrend and condShortSignal
+
+// Tabla: 2 columnas x 6 filas (padding, header, Contexto, Tendencia, Señal, OK)
+var table leds = table.new(position.top_center, 2, 6, border_width=1)
+
+// Paleta con fade (menos agresiva)
+greenFull = color.new(color.lime, 0)
+greenFade = color.new(color.lime, 70)
+redFull   = color.new(color.red,  0)
+redFade   = color.new(color.red,  70)
+hdrLongBg  = color.new(color.green, 85)
+hdrShortBg = color.rgb(128, 0, 0, 85)   // maroon con alpha
+textCol    = color.white
+padBg      = color.new(color.black, 100)
+
+bgBool(_ok, _okColor, _failColor) => _ok ? _okColor : _failColor
+
+if barstate.isnew
+    // Fila 0: padding
+    table.cell(leds, 0, 0, "", bgcolor=padBg)
+    table.cell(leds, 1, 0, "", bgcolor=padBg)
+
+    // Fila 1: encabezados
+    table.cell(leds, 0, 1, "LONG",  text_color=textCol, bgcolor=hdrLongBg,  text_size=size.small)
+    table.cell(leds, 1, 1, "SHORT", text_color=textCol, bgcolor=hdrShortBg, text_size=size.small)
+
+    // Fila 2: Contexto
+    table.cell(leds, 0, 2, "Contexto", text_color=textCol, bgcolor=bgBool(condContext, greenFull, redFade), text_size=size.small)
+    table.cell(leds, 1, 2, "Contexto", text_color=textCol, bgcolor=bgBool(condContext, greenFull, redFade), text_size=size.small)
+
+    // Fila 3: Tendencia
+    table.cell(leds, 0, 3, "Tendencia", text_color=textCol, bgcolor=bgBool(condLongTrend,  greenFull, redFade), text_size=size.small)
+    table.cell(leds, 1, 3, "Tendencia", text_color=textCol, bgcolor=bgBool(condShortTrend, greenFull, redFade), text_size=size.small)
+
+    // Fila 4: Señal
+    table.cell(leds, 0, 4, "Señal", text_color=textCol, bgcolor=bgBool(condLongSignal,  greenFull, redFade), text_size=size.small)
+    table.cell(leds, 1, 4, "Señal", text_color=textCol, bgcolor=bgBool(condShortSignal, greenFull, redFade), text_size=size.small)
+
+    // Fila 5: OK final
+    table.cell(leds, 0, 5, "OK Long",  text_color=textCol, bgcolor=bgBool(okLong,  greenFull, greenFade), text_size=size.small)
+    table.cell(leds, 1, 5, "OK Short", text_color=textCol, bgcolor=bgBool(okShort, greenFull, greenFade), text_size=size.small)
+
+// Tint de fondo opcional (mantengo tus líneas)
+bgcolor(okLong  ? color.new(color.lime,  90) : na)
+bgcolor(okShort ? color.new(color.red,   92) : na)
+
+// =========================
+// Plots
+// =========================
+plot(upperEntry, "Entrada Long (Donchian)",  color=color.new(color.green, 0))
+plot(lowerEntry, "Entrada Short (Donchian)", color=color.new(color.red,   0))
+plot(lowerExit,  "Trailing Long (salida)",   color=color.new(color.orange, 40))
+plot(upperExit,  "Trailing Short (salida)",  color=color.new(color.blue,   40))
+plot(useMAFilter ? ma : na, "MA Tendencia", color=color.new(color.gray, 0))
+
+// =========================
+// HUD (estado compacto por barra) — versión lateral [FK]
+// =========================
+var label hud = na
+if barstate.isnew
+    if not na(hud)
+        label.delete(hud)
+
+    txt = "Turtle v2 — Long & Short\n" +
+          "N(ATR"+str.tostring(atrLen)+")="+str.tostring(N, format.mintick) +
+          " | Stop="+str.tostring(stopMultN)+"N | Add="+str.tostring(addStepN)+"N" +
+          "\nUnidades="+str.tostring(unitsAdded)+" / "+str.tostring(maxUnits) +
+          " | Qty="+str.tostring(qtyPerUnit, format.mintick) +
+          (use55 ? "\nEntrada=55d (última fue ganadora)" : "\nEntrada=20d") +
+          "\nOK Long=" + (okLong ? "Sí" : "No") + " | OK Short=" + (okShort ? "Sí" : "No")
+
+    // Posición lateral: 10 barras a la derecha y medio N arriba del máximo local
+    hud := label.new(bar_index + 10, high + (N * 0.5), txt, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, textcolor = color.white,color = color.new(color.black, 0), size = size.tiny, textalign = text.align_left)
+
+// =========================
+// ALERTAS runtime (alert())
+// =========================
+send(msg) =>
+    alert(msg, alert.freq_once_per_bar_close)
+
+// Dispara mensajes SOLO al cierre de vela
+if enableAlerts and barstate.isconfirmed
+    if isFlat and longSignal
+        send("Turtle v2: LONG entry signal (breakout)")
+    if isFlat and shortSignal
+        send("Turtle v2: SHORT entry signal (breakdown)")
+    if isLong and not na(nextAddPrice) and close >= nextAddPrice
+        send("Turtle v2: ADD LONG level reached")
+    if isShort and not na(nextAddPrice) and close <= nextAddPrice
+        send("Turtle v2: ADD SHORT level reached")
