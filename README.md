@@ -1,186 +1,130 @@
-![Turtle Trading v2 Banner](./turtlebanner.png)
+Excelente, Fer 🔥
 
-# 🐢 Turtle Trading v2 — Rebalanced Long & Short [FK]
-
-**Autor:** [Fernando Cuéllar](https://kuellarfer.com)  
-**Versión:** v2.0 (Pine Script® v6)  
-**Licencia:** [Mozilla Public License 2.0](https://mozilla.org/MPL/2.0/)  
-**Repositorio:** [github.com/fercuellar/TurtleTrading-v2](#)
+Aquí te propongo cómo quedaría la **estructura completa del repositorio institucional** en GitHub (con soporte para GitHub Pages o Docs), incluyendo el `README.md`, `SUMMARY.md` para navegación tipo wiki y los subdocs técnicos (como el manual completo que ya hicimos).
 
 ---
 
-## 📘 Descripción General
+## 📂 Estructura del Repositorio
 
-**Turtle Trading v2 [FK]** es una reinterpretación institucional y cuantitativa del clásico sistema de **Richard Dennis y William Eckhardt**, actualizada para mercados modernos de alta volatilidad como **criptomonedas, oro y metales**.  
-Integra gestión de riesgo profesional, piramidación dinámica, HUD informativo y panel de validación visual ("Semáforo").
+```
+TurtleTrading-v2/
+│
+├── README.md
+├── LICENSE
+├── .gitignore
+│
+├── src/
+│   └── TurtleTrading_v2_Rebalanced_LongShort_FK.pine
+│
+├── docs/
+│   ├── MANUAL_TURTLE_TRADING_V2.md
+│   ├── PARAMETERS_TABLE.md
+│   ├── BACKTEST_GUIDE.md
+│   ├── STRATEGY_LOGIC.md
+│   └── SCANNER_SETUP.md
+│
+└── SUMMARY.md
+```
+
+---
+
+## 🧭 `README.md` (para la raíz del repo)
+
+```markdown
+# 🐢 Turtle Trading v2 — Rebalanced Long & Short [FK]
+
+**Sistema Cuantitativo de Breakouts Donchian con Reglas 20/55, ATR y Gestión de Riesgo**
+
+Desarrollado por **Fernando Cuéllar — KuellarFer Labs**
+
+---
+
+## 🎯 Objetivo
+
+Esta estrategia replica y moderniza el legendario método **Turtle Trading** (Richard Dennis & William Eckhardt) adaptado al entorno **algorítmico y multi-activo** actual.  
+Combina **rupturas Donchian**, **gestión de riesgo por ATR (N)** y **piramidación dinámica** controlada por condiciones de contexto, tendencia y señal.
 
 ---
 
 ## ⚙️ Características Principales
 
-- 📈 **Estrategia de ruptura Donchian (20/55 días)**
-- 🧠 **Gestión de riesgo dinámica basada en ATR**
-- 🟩 **Filtro de tendencia con MA200**
-- 🔁 **Piramidación inteligente hasta 3 unidades**
-- 🚨 **Alertas automáticas compatibles con webhooks**
-- 🖥️ **HUD lateral + semáforo central**
-- 🧩 **Código limpio, optimizado para backtesting y bots**
+- ✅ **Regla 20/55** condicional según la última operación (pérdida o ganancia)  
+- 🧮 **Gestión de riesgo cuantitativa** con lotes redondeados a `qtyStep` y `minQty`  
+- 🔁 **Piramidación** inteligente en múltiplos de `addStepN × N`  
+- 🧠 **Filtros de tendencia** (MA200 + régimen de sesión/fecha)  
+- 📈 **Trailing Stop Donchian 10d** sin look-ahead  
+- 🟩 **HUD institucional** y **semáforo visual**  
+- 📡 **Alertas runtime** integradas para señales y adds  
 
 ---
 
-## 🧠 Filosofía del Sistema
+## 📊 Documentación Completa
 
-> “No se trata de adivinar el mercado, sino de gestionar el riesgo mientras sigues la tendencia.”  
-> — *Richard Dennis (Turtle Trader)*
-
-El sistema no busca predecir.  
-Sigue el flujo del mercado usando **canales Donchian**, gestión de riesgo antifrágil y reglas cuantitativas, dejando correr beneficios y limitando pérdidas.
-
----
-
-## ⚙️ Parámetros de Configuración
-
-| Grupo | Parámetro | Descripción | Valor por Defecto |
-|--------|------------|-------------|------------------|
-| **Modo / Reglas** | 20-día solo tras pérdida | Usa canal 20d tras pérdida. | ✅ Activado |
-| | Dirección habilitada | “Both”, “Long only”, “Short only”. | Both |
-| **Sizing / Riesgo** | Riesgo % por trade | % del capital arriesgado. | 0.5 |
-| | Cuenta (USD) | Monto base para sizing. | 3000 |
-| **Filtros** | MA200 | Filtro de tendencia activo. | ✅ |
-| | Backtest desde | Fecha inicial. | 2020-01-01 |
-| **Avanzado** | ATR (N) | Periodos ATR. | 25 |
-| | Stop inicial (xN) | Stop = múltiplo de N. | 2.5 |
-| | Paso entre adds (xN) | Distancia entre piramidaciones. | 0.75 |
-| | Máx. unidades | Acumulación máxima. | 3 |
-| **Símbolo** | Paso de cantidad | Incremento mínimo (lot step). | 0.001 |
-| | Cantidad mínima | Tamaño mínimo permitido. | 0.001 |
-| **Alertas** | Activar alertas | Envía alertas runtime. | ✅ |
+| Documento | Descripción |
+|------------|-------------|
+| [`docs/MANUAL_TURTLE_TRADING_V2.md`](docs/MANUAL_TURTLE_TRADING_V2.md) | Manual completo de usuario y explicación técnica |
+| [`docs/PARAMETERS_TABLE.md`](docs/PARAMETERS_TABLE.md) | Parámetros recomendados para los 15 principales activos cripto + oro |
+| [`docs/BACKTEST_GUIDE.md`](docs/BACKTEST_GUIDE.md) | Guía para backtesting en TradingView y ajuste de slippage |
+| [`docs/STRATEGY_LOGIC.md`](docs/STRATEGY_LOGIC.md) | Explicación de las cuatro reglas y la lógica de entradas/salidas |
+| [`docs/SCANNER_SETUP.md`](docs/SCANNER_SETUP.md) | Cómo usar el scanner de señales OK Long/Short en múltiples pares |
 
 ---
 
-## 📊 Lógica de Operación
+## 💹 Activos Recomendados
 
-### 1. Entradas
-- **LONG:** Ruptura del canal superior Donchian (55d o 20d).  
-- **SHORT:** Ruptura del canal inferior.  
-- Tras pérdida, usa canal corto (20d).
+BTC, ETH, BNB, SOL, XRP, ADA, DOGE, AVAX, MATIC, DOT, LINK, LTC, TRX, TON, SHIB, XAUUSD.
 
-### 2. Salidas
-- Stop inicial = `StopMultN × N`.  
-- Stop dinámico = canal Donchian opuesto (10d).
-
-### 3. Filtro de Tendencia
-- Si se activa el MA200:
-  - Solo LONG cuando `close > MA200`
-  - Solo SHORT cuando `close < MA200`
-
-### 4. Piramidación
-- Añade posición cada `addStepN × N` a favor de la tendencia.  
-- Máximo de `maxUnits` acumuladas.
-
-### 5. Tamaño de Posición
-Qty = (Cuenta × Riesgo%) / (StopMultN × ATR)
+| Activo | ATR (N) | Stop (xN) | Add (xN) | Riesgo % | MA Filter |
+|---|---:|---:|---:|---:|:--:|
+| BTCUSDT | 25 | 2.5 | 0.75 | 0.5 | ✅ |
+| ETHUSDT | 25 | 2.0 | 0.75 | 0.5 | ✅ |
+| XAUUSD  | 35 | 2.0 | 0.50 | 0.3 | ✅ |
 
 ---
 
-## 🧩 Interfaz Visual
+## 🧠 Filosofía
 
-### 🖥️ HUD Lateral
-Panel informativo con todos los datos del sistema:
+> *“Los sistemas simples, cuando se ejecutan con disciplina, superan la intuición humana en el largo plazo.”*  
+> — Richard Dennis
 
-Turtle v2 — Long & Short
-N(ATR25)=14.84 | Stop=2.5N | Add=0.75N
-Unidades=3 / 3 | Qty=0.40
-Entrada=55d (última fue ganadora)
-OK Long=Sí | OK Short=No
-
-
-### 🟩 Semáforo Central
-Validación de contexto, tendencia y señal:
-
-| Fila | Significado | Verde | Rojo |
-|------|--------------|-------|------|
-| Contexto | Fecha y sesión válidas | ✅ | ❌ |
-| Tendencia | A favor de MA200 | ✅ | ❌ |
-| Señal | Ruptura activa | ✅ | ❌ |
-| OK | Condiciones completas | ✅ | ❌ |
+Este proyecto busca mantener el espíritu original del experimento *Turtle Trading*, incorporando rigor técnico, validación antifrágil y visualización cuantitativa moderna.
 
 ---
 
-## ⚡ Alertas Automáticas
+## 🧩 Dependencias
 
-| Tipo | Condición | Mensaje |
-|------|------------|----------|
-| LONG Entry | Ruptura superior | `Turtle v2: LONG entry signal (breakout)` |
-| SHORT Entry | Ruptura inferior | `Turtle v2: SHORT entry signal (breakdown)` |
-| ADD Long | Nivel de piramidación alcanzado | `Turtle v2: ADD LONG level reached` |
-| ADD Short | Nivel de piramidación alcanzado | `Turtle v2: ADD SHORT level reached` |
+- TradingView Pine Script® v6  
+- Compatible con versiones anteriores (v5 con leves ajustes)
+- Compatible con cualquier símbolo disponible en TradingView
 
 ---
 
-## 🧮 Parámetros Recomendados — Criptomonedas y Oro
+## 🧭 Créditos
 
-| Activo | ATR (N) | Stop (xN) | Add (xN) | Riesgo % | MA Filter | Timeframe Sugerido |
-|---------|----------|-----------|-----------|-----------|------------|--------------------|
-| BTCUSDT | 25 | 2.5 | 0.75 | 0.5 | ✅ | 1D |
-| ETHUSDT | 25 | 2.0 | 0.75 | 0.5 | ✅ | 1D |
-| BNBUSDT | 30 | 2.5 | 0.75 | 0.5 | ✅ | 1D |
-| SOLUSDT | 20 | 2.5 | 0.75 | 0.75 | ✅ | 4H |
-| XRPUSDT | 25 | 2.0 | 0.5 | 0.5 | ✅ | 1D |
-| ADAUSDT | 25 | 2.5 | 0.75 | 0.5 | ✅ | 1D |
-| DOGEUSDT | 25 | 2.5 | 0.75 | 0.5 | ✅ | 4H |
-| AVAXUSDT | 20 | 2.0 | 0.75 | 0.5 | ✅ | 1D |
-| MATICUSDT | 25 | 2.0 | 0.75 | 0.5 | ✅ | 1D |
-| DOTUSDT | 25 | 2.5 | 0.75 | 0.5 | ✅ | 1D |
-| LINKUSDT | 25 | 2.0 | 0.75 | 0.5 | ✅ | 1D |
-| LTCUSDT | 25 | 2.5 | 0.75 | 0.5 | ✅ | 1D |
-| TRXUSDT | 25 | 2.0 | 0.75 | 0.5 | ✅ | 1D |
-| TONUSDT | 20 | 2.0 | 0.5 | 0.5 | ✅ | 4H |
-| SHIBUSDT | 25 | 2.5 | 0.75 | 0.75 | ✅ | 4H |
-| XAUUSD | 35 | 2.0 | 0.5 | 0.3 | ✅ | 1D |
+**Autor:** [Fernando Cuéllar (KuellarFer Labs)](https://github.com/ferkuellar)  
+**Licencia:** MPL 2.0  
+**Versión:** 2.1 — Octubre 2025  
 
 ---
 
-## 🧠 Estrategia Visual
-
-📈 **Indicadores Clave:**
-- **Canales Donchian (20, 55, 10)**  
-- **Media móvil 200 periodos**  
-- **ATR dinámico (25)**  
-
-🟩 Verde = Señal válida  
-🟥 Rojo = Condición bloqueada  
+![Banner](docs/banner.png)
+```
 
 ---
 
-## 🚀 Uso Profesional
+## 📚 `SUMMARY.md` (para la Wiki o GitHub Pages)
 
-### 🔬 Modo Backtesting
-1. Abre TradingView → *Pine Editor*  
-2. Pega el código completo  
-3. Selecciona el par y timeframe  
-4. Ejecuta el *Strategy Tester*
+```markdown
+# Summary
 
-### ⚙️ Modo Live Trading
-- Activa `enableAlerts = true`  
-- Configura webhooks hacia tu bot (n8n / 3Commas / Binance API)  
-- Monitorea en tiempo real las señales con el semáforo y HUD.
-
----
-
-## 🏛️ Créditos
-
-Desarrollado por **Fernando Cuéllar**  
-Data Scientist | Quant Developer | Fundador de [KuellarFer Labs](https://kuellarfer.com)
-
-📧 **Correo:** [kuellarfer@gmail.com](mailto:kuellarfer@gmail.com)  
-🐙 **GitHub:** [https://github.com/fercuellar](https://github.com/fercuellar)  
-📊 **TradingView:** [FerCuellar](https://www.tradingview.com/u/FerCuellar)
+* [Inicio](README.md)
+* [Manual Técnico Completo](docs/MANUAL_TURTLE_TRADING_V2.md)
+* [Parámetros por Activo](docs/PARAMETERS_TABLE.md)
+* [Guía de Backtesting](docs/BACKTEST_GUIDE.md)
+* [Lógica de Estrategia y Reglas](docs/STRATEGY_LOGIC.md)
+* [Scanner Multi-Par y Señales](docs/SCANNER_SETUP.md)
+```
 
 ---
 
-## 📜 Licencia
-
-```text
-This Pine Script® code is subject to the terms of the Mozilla Public License 2.0.
-© 2025 Fernando Cuéllar — All rights reserved.
+¿Quieres que ahora te genere los archivos complementarios (`PARAMETERS_TABLE.md`, `SCANNER_SETUP.md` y `BACKTEST_GUIDE.md`) con tablas y ejemplos para subirlos directamente al repo y dejarlo **institucional completo**? Puedo incluir un banner adicional 1500×500 optimizado para `docs/banner.png`.
