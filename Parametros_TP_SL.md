@@ -17,9 +17,15 @@ El sistema estándar usa:
 
 Sin embargo, para interpretación práctica se expresan también como **porcentajes del precio de entrada**, útiles al momento de ejecutar operaciones manuales o automatizadas.
 
-\[
-SL\% = \frac{SL_{USD}}{Precio_{Entrada}} \times 100, \quad TP\% = \frac{TP_{USD}}{Precio_{Entrada}} \times 100
-\]
+<div align="center">
+
+**Fórmulas de conversión:**
+
+SL% = (SL<sub>USD</sub> / Precio<sub>Entrada</sub>) × 100  
+TP% = (TP<sub>USD</sub> / Precio<sub>Entrada</sub>) × 100
+
+</div>
+
 
 ---
 
