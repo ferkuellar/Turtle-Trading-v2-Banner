@@ -6,8 +6,8 @@
 **Versión:** 2.1 • Octubre 2025  
 **Licencia:** MPL 2.0  
 **Documento de referencia:** [📘 Manual de Usuario Técnico (ManualUsuario.md)](ManualUsusario.md)
-
 **Parametros de referencia:** [Parametros de Referencia(Parametros).](Parametros_TP_SL.md)
+**Codigo:** [Codigo PineScript V6.0](TurtleTradingV2RebalancedLongShort.pine)
 
 ## 🎓 Introducción
 
