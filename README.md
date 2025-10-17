@@ -151,7 +151,7 @@ Para análisis cuantitativo robusto:
 
 > Para una descripción detallada de cada bloque de código, variable y lógica de ejecución, consulte el documento oficial:
 
-🔗 **[Manual de Usuario Técnico — Turtle Trading v2 (ManualUsuario.md)](ManualUsuario.md)**
+🔗 **[Manual de Usuario Técnico — Turtle Trading v2 (ManualUsuario.md)](ManualUsusario.md)**
 
 Incluye:
 - Explicación línea por línea  
