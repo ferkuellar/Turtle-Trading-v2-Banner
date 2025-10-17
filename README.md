@@ -5,9 +5,7 @@
 **Autor:** Fernando Cuéllar — *KuellarFer Labs*  
 **Versión:** 2.1 • Octubre 2025  
 **Licencia:** MPL 2.0  
-**Documento de referencia:** [📘 Manual de Usuario Técnico (ManualUsuario.md)](ManualUsuario.md)
-
----
+**Documento de referencia:** [📘 Manual de Usuario Técnico (ManualUsuario.md)](ManualUsusario.md)
 
 ## 🎓 Introducción
 
