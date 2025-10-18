@@ -1,0 +1,474 @@
+//+------------------------------------------------------------------+
+//| Turtle Trading v2 — Rebalanced Long & Short [FK] (MT5 EA)        |
+//| v2: pendings, exit dinámico, adds 1.0N, sizing OrderCalcProfit   |
+//+------------------------------------------------------------------+
+#property strict
+
+// === Inputs ===
+input bool   InpUse20OnlyAfterLoss = true;      // 20-day only after loss (else 55)
+enum DirMode {Both=0, LongOnly=1, ShortOnly=2};
+input DirMode InpDirectionMode      = Both;     // Dirección habilitada
+input double InpRiskPct             = 0.50;     // % equity risk per trade
+input int    InpAccountUSD          = 3000;     // Presupuesto USD (fallback = equity)
+input bool   InpUseMAFilter         = true;     // Filtro de tendencia (MA200)
+input int    InpMALen               = 200;      // MA length
+input int    InpATRLen              = 25;       // ATR (Wilder) len (N)
+input double InpStopMultN           = 2.5;      // Stop inicial = k * N
+input double InpAddStepN            = 1.0;      // (MEJORA) Paso entre adds (x N)
+input int    InpMaxUnits            = 2;        // (MEJORA) Máx. unidades incl. inicial
+input int    InpEntry20             = 20;       // Donchian 20
+input int    InpEntry55             = 55;       // Donchian 55
+input datetime InpDateFrom          = D'2020.01.01 00:00'; // Backtest desde
+input string   InpSessionHHMM       = "0000-2359";        // Sesión (HHMM-HHMM)
+input bool     InpUseCloseBreakout  = false;    // (MEJORA) Requerir cierre fuera del canal
+
+#define MAGIC  20251016
+
+// --- Estado ---
+datetime g_lastBarTime = 0;
+double   g_tradeN      = 0.0;   // N fijado al entrar (barra previa)
+double   g_nextAdd     = 0.0;   // siguiente precio de add
+int      g_unitsAdded  = 0;     // nº de unidades abiertas
+bool     g_lastTradeLoss = true;// última cerrada fue pérdida?
+
+// --- Indicadores ---
+int hATR = INVALID_HANDLE;
+int hMA  = INVALID_HANDLE;
+
+// --- Helpers ---
+double Max2(double a,double b){ return (a>b)?a:b; }
+double Min2(double a,double b){ return (a<b)?a:b; }
+
+int    Dig()  { return (int)SymbolInfoInteger(_Symbol,SYMBOL_DIGITS); }
+double Pt()   { double p=SymbolInfoDouble(_Symbol,SYMBOL_POINT); return (p>0?p:Point()); }
+double NormP(double p){ double pt=Pt(); return (pt>0? MathRound(p/pt)*pt : p); }
+
+bool InSession(const string hhmm)
+{
+   if(StringLen(hhmm)!=9 || StringFind(hhmm,"-")!=4) return true;
+   string s1=StringSubstr(hhmm,0,4), s2=StringSubstr(hhmm,5,4);
+   int fromH=(int)StringToInteger(StringSubstr(s1,0,2));
+   int fromM=(int)StringToInteger(StringSubstr(s1,2,2));
+   int toH  =(int)StringToInteger(StringSubstr(s2,0,2));
+   int toM  =(int)StringToInteger(StringSubstr(s2,2,2));
+   MqlDateTime mt; TimeToStruct(TimeCurrent(),mt);
+   int cur=mt.hour*100+mt.min, from=fromH*100+fromM, to=toH*100+toM;
+   if(from<=to) return (cur>=from && cur<=to);
+   return (cur>=from || cur<=to);
+}
+
+bool EnsureIndicators()
+{
+   if(hATR==INVALID_HANDLE) hATR=iATR(_Symbol,_Period,InpATRLen);
+   if(hMA ==INVALID_HANDLE) hMA =iMA (_Symbol,_Period,InpMALen,0,MODE_SMA,PRICE_CLOSE);
+   return (hATR!=INVALID_HANDLE && hMA!=INVALID_HANDLE);
+}
+
+double GetATR(int shift)
+{
+   if(!EnsureIndicators()) return 0.0;
+   double buf[]; ArraySetAsSeries(buf,true);
+   if(CopyBuffer(hATR,0,shift,1,buf)!=1) return 0.0;
+   return buf[0];
+}
+
+double GetMA(int shift)
+{
+   if(!EnsureIndicators()) return 0.0;
+   double buf[]; ArraySetAsSeries(buf,true);
+   if(CopyBuffer(hMA,0,shift,1,buf)!=1) return 0.0;
+   return buf[0];
+}
+
+double DonchianHigh(int len,int shift_exclude_current=1)
+{
+   double hi=-DBL_MAX;
+   for(int i=shift_exclude_current; i<shift_exclude_current+len; i++){
+      double h=iHigh(_Symbol,_Period,i);
+      if(h>hi) hi=h;
+   }
+   return (hi==-DBL_MAX)?0.0:hi;
+}
+double DonchianLow(int len,int shift_exclude_current=1)
+{
+   double lo= DBL_MAX;
+   for(int i=shift_exclude_current; i<shift_exclude_current+len; i++){
+      double l=iLow(_Symbol,_Period,i);
+      if(l<lo) lo=l;
+   }
+   return (lo== DBL_MAX)?0.0:lo;
+}
+
+double RoundVolume(double lotsRaw)
+{
+   double step=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_STEP);
+   double minv=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MIN);
+   double maxv=SymbolInfoDouble(_Symbol,SYMBOL_VOLUME_MAX);
+   if(step<=0) step=0.01;
+   if(minv<=0) minv=step;
+   if(maxv<=0) maxv=100.0;
+   double k=MathFloor(lotsRaw/step+0.5);
+   double lots=k*step;
+   if(lots<minv) lots=minv;
+   if(lots>maxv) lots=maxv;
+   return lots;
+}
+
+// === Sizing exacto por riesgo usando OrderCalcProfit ===
+double CalcLotsByRisk(double entryPrice, bool isLong, double N, double riskUSD)
+{
+   double pt = Pt();
+   if(pt<=0 || N<=0 || riskUSD<=0) return 0.0;
+   double stopDistPts = InpStopMultN * N / pt;
+   double stopPrice   = isLong ? (entryPrice - stopDistPts*pt)
+                               : (entryPrice + stopDistPts*pt);
+   double perLot; // pérdida por 1 lote hasta SL
+   if(!OrderCalcProfit(isLong?ORDER_TYPE_BUY:ORDER_TYPE_SELL, _Symbol, 1.0,
+                       entryPrice, stopPrice, perLot))
+      return 0.0;
+   perLot=MathAbs(perLot);
+   if(perLot<=0) return 0.0;
+   return RoundVolume(riskUSD / perLot);
+}
+
+// === Utils de posiciones ===
+int CountPositions(int dir/*ORDER_TYPE_BUY/SELL*/)
+{
+   int total=0;
+   for(int idx=0; idx<PositionsTotal(); idx++){
+      string sym=PositionGetSymbol(idx);
+      if(sym==_Symbol){
+         long type=PositionGetInteger(POSITION_TYPE);
+         if( (dir==ORDER_TYPE_BUY  && type==POSITION_TYPE_BUY) ||
+             (dir==ORDER_TYPE_SELL && type==POSITION_TYPE_SELL) ) total++;
+      }
+   }
+   return total;
+}
+double SumLots(int dir)
+{
+   double sum=0.0;
+   for(int idx=0; idx<PositionsTotal(); idx++){
+      string sym=PositionGetSymbol(idx);
+      if(sym==_Symbol){
+         long type=PositionGetInteger(POSITION_TYPE);
+         if( (dir==ORDER_TYPE_BUY  && type==POSITION_TYPE_BUY) ||
+             (dir==ORDER_TYPE_SELL && type==POSITION_TYPE_SELL) )
+            sum += PositionGetDouble(POSITION_VOLUME);
+      }
+   }
+   return sum;
+}
+
+// === Pending orders helpers ===
+bool OrderSelectByIndex(int i)
+{
+   ulong ticket=OrderGetTicket(i);
+   if(ticket==0) return false;
+   return OrderSelect(ticket);
+}
+bool PendingExists(int type,const string prefix)
+{
+   for(int i=0;i<OrdersTotal();i++){
+      if(!OrderSelectByIndex(i)) continue;
+      if(OrderGetInteger(ORDER_MAGIC)!=MAGIC) continue;
+      if(OrderGetString(ORDER_SYMBOL)!=_Symbol) continue;
+      if((int)OrderGetInteger(ORDER_TYPE)!=type) continue;
+      string c=OrderGetString(ORDER_COMMENT);
+      if(StringFind(c,prefix,0)==0) return true;
+   }
+   return false;
+}
+void CancelPendingsByPrefix(const string prefix)
+{
+   for(int i=OrdersTotal()-1;i>=0;i--){
+      if(!OrderSelectByIndex(i)) continue;
+      if(OrderGetInteger(ORDER_MAGIC)!=MAGIC) continue;
+      if(OrderGetString(ORDER_SYMBOL)!=_Symbol) continue;
+      string c=OrderGetString(ORDER_COMMENT);
+      if(StringFind(c,prefix,0)==0){
+         MqlTradeRequest req; MqlTradeResult res; ZeroMemory(req); ZeroMemory(res);
+         req.action=TRADE_ACTION_REMOVE;
+         req.order = OrderGetInteger(ORDER_TICKET);
+         OrderSend(req,res);
+      }
+   }
+}
+bool PlaceStopPending(int type,double lots,double price,const string comment,double sl)
+{
+   if(lots<=0 || price<=0) return false;
+   MqlTradeRequest req; MqlTradeResult res; ZeroMemory(req); ZeroMemory(res);
+   req.action   = TRADE_ACTION_PENDING;
+   req.symbol   = _Symbol;
+   req.magic    = MAGIC;
+   req.type     = (ENUM_ORDER_TYPE)type; // ORDER_TYPE_BUY_STOP / SELL_STOP
+   req.volume   = lots;
+   req.price    = NormP(price);
+   req.sl       = (sl>0? NormP(sl):0.0);
+   req.deviation= 20;
+   req.type_filling = ORDER_FILLING_RETURN;
+   req.type_time    = ORDER_TIME_SPECIFIED;
+   int secs = (int)PeriodSeconds(_Period); if(secs<=0) secs=86400;
+   req.expiration   = TimeCurrent() + (2*secs); // expira ~2 velas
+   req.comment      = comment;
+   return OrderSend(req,res);
+}
+
+// === SL trailing para TODAS las posiciones del lado indicado ===
+bool ModifySL(int dir,double newSL)
+{
+   bool ok=true;
+   for(int idx=0; idx<PositionsTotal(); idx++){
+      string sym=PositionGetSymbol(idx);
+      if(sym!=_Symbol) continue;
+      long type=PositionGetInteger(POSITION_TYPE);
+      if( (dir==ORDER_TYPE_BUY && type==POSITION_TYPE_BUY) ||
+          (dir==ORDER_TYPE_SELL && type==POSITION_TYPE_SELL) )
+      {
+         double tp=PositionGetDouble(POSITION_TP);
+         double sl=PositionGetDouble(POSITION_SL);
+         if(dir==ORDER_TYPE_BUY)  newSL=Max2(newSL,(sl>0?sl:-DBL_MAX));
+         if(dir==ORDER_TYPE_SELL) newSL=Min2(newSL,(sl>0?sl: DBL_MAX));
+         MqlTradeRequest req; MqlTradeResult res; ZeroMemory(req); ZeroMemory(res);
+         req.action   = TRADE_ACTION_SLTP;
+         req.symbol   = _Symbol;
+         req.magic    = MAGIC;
+         req.position = (ulong)PositionGetInteger(POSITION_TICKET);
+         req.sl       = newSL;
+         req.tp       = tp;
+         if(!OrderSend(req,res)) ok=false;
+      }
+   }
+   return ok;
+}
+
+void UpdateLastTradeLossFlag()
+{
+   HistorySelect(0,TimeCurrent());
+   double lastPL=0.0; datetime lastClose=0;
+   for(int i=HistoryDealsTotal()-1; i>=0; i--){
+      ulong deal=HistoryDealGetTicket(i);
+      string sym=""; HistoryDealGetString(deal,DEAL_SYMBOL,sym);
+      if(sym==_Symbol){
+         long dtype=HistoryDealGetInteger(deal,DEAL_TYPE);
+         if(dtype==DEAL_TYPE_BUY || dtype==DEAL_TYPE_SELL){
+            double profit = HistoryDealGetDouble(deal,DEAL_PROFIT)
+                           +HistoryDealGetDouble(deal,DEAL_SWAP)
+                           +HistoryDealGetDouble(deal,DEAL_COMMISSION);
+            datetime tclose=(datetime)HistoryDealGetInteger(deal,DEAL_TIME);
+            if(tclose>lastClose){ lastClose=tclose; lastPL=profit; }
+         }
+      }
+   }
+   if(lastClose>0) g_lastTradeLoss = (lastPL<0);
+}
+
+// --- core ---
+int OnInit()
+{
+   g_lastBarTime=0; g_tradeN=0; g_nextAdd=0; g_unitsAdded=0;
+   hATR=INVALID_HANDLE; hMA=INVALID_HANDLE;
+   UpdateLastTradeLossFlag();
+   return(INIT_SUCCEEDED);
+}
+void OnDeinit(const int reason){}
+
+void OnTick()
+{
+   // Historia suficiente
+   int need = (int)MathMax(InpMALen, MathMax(InpEntry55, MathMax(20, InpATRLen))) + 10;
+   if(Bars(_Symbol,_Period) < need) return;
+   if(TimeCurrent() < InpDateFrom) return;
+   if(!InSession(InpSessionHHMM)) return;
+
+   // Nueva barra
+   datetime bt = iTime(_Symbol,_Period,0);
+   bool isNewBar = (bt!=g_lastBarTime);
+   if(isNewBar) g_lastBarTime=bt;
+
+   // Señales
+   int  entryLen = (InpUse20OnlyAfterLoss && !g_lastTradeLoss) ? InpEntry55 : InpEntry20;
+   int  exitLen  = (entryLen==InpEntry55 ? 20 : 10); // (MEJORA) exit dinámico
+   double ma0    = GetMA(0);
+   double close0 = iClose(_Symbol,_Period,0);
+   bool trendLongOK  = (!InpUseMAFilter) || (close0 > ma0);
+   bool trendShortOK = (!InpUseMAFilter) || (close0 < ma0);
+
+   double upperEntry = DonchianHigh(entryLen,1);
+   double lowerEntry = DonchianLow (entryLen,1);
+   double upperExit  = DonchianHigh(exitLen,1);
+   double lowerExit  = DonchianLow (exitLen,1);
+
+   double N0 = GetATR(0);
+   if(N0<=0) return;
+
+   // Riesgo
+   double equity   = AccountInfoDouble(ACCOUNT_EQUITY);
+   double budget   = (InpAccountUSD>0 ? InpAccountUSD : equity);
+   double riskUSD  = budget * (InpRiskPct/100.0);
+
+   bool allowLong  = (InpDirectionMode==Both || InpDirectionMode==LongOnly);
+   bool allowShort = (InpDirectionMode==Both || InpDirectionMode==ShortOnly);
+
+   // Close-breakout opcional
+   bool longSetupClose  = (!InpUseCloseBreakout) ||
+                          (iClose(_Symbol,_Period,1) > DonchianHigh(entryLen,2));
+   bool shortSetupClose = (!InpUseCloseBreakout) ||
+                          (iClose(_Symbol,_Period,1) < DonchianLow(entryLen,2));
+
+   // Estado posiciones
+   int longCount  = CountPositions(ORDER_TYPE_BUY);
+   int shortCount = CountPositions(ORDER_TYPE_SELL);
+   bool isLong  = (longCount>0 && shortCount==0);
+   bool isShort = (shortCount>0 && longCount==0);
+   bool isFlat  = (!isLong && !isShort);
+
+   // Unidades actuales
+   double unitLotsLong  = CalcLotsByRisk(upperEntry, true,  N0, riskUSD);
+   double unitLotsShort = CalcLotsByRisk(lowerEntry, false, N0, riskUSD);
+   int posUnits = 0;
+   if(isLong)  posUnits = (int)MathRound(SumLots(ORDER_TYPE_BUY)  / (unitLotsLong>0?unitLotsLong:1.0));
+   if(isShort) posUnits = (int)MathRound(SumLots(ORDER_TYPE_SELL) / (unitLotsShort>0?unitLotsShort:1.0));
+
+   double ask = SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+   double bid = SymbolInfoDouble(_Symbol,SYMBOL_BID);
+
+   // === ENTRADAS: crear pendientes en nueva barra cuando flat ===
+   if(isFlat && isNewBar)
+   {
+      // limpia pendientes antiguos
+      CancelPendingsByPrefix("TurtleV2 L-");
+      CancelPendingsByPrefix("TurtleV2 S-");
+
+      if(allowLong && trendLongOK && longSetupClose && upperEntry>0 && unitLotsLong>0)
+      {
+         double sl= upperEntry - InpStopMultN*N0;
+         PlaceStopPending(ORDER_TYPE_BUY_STOP, unitLotsLong, upperEntry, "TurtleV2 L-1", sl);
+      }
+      if(allowShort && trendShortOK && shortSetupClose && lowerEntry>0 && unitLotsShort>0)
+      {
+         double sl= lowerEntry + InpStopMultN*N0;
+         PlaceStopPending(ORDER_TYPE_SELL_STOP, unitLotsShort, lowerEntry, "TurtleV2 S-1", sl);
+      }
+   }
+
+   // Detectar apertura inicial (pendiente llenada)
+   static bool wasLong=false, wasShort=false;
+   if(!wasLong && isLong){
+      // inicializa trade
+      g_tradeN = GetATR(1);
+      g_unitsAdded = posUnits>0? posUnits:1;
+      // precio medio actual
+      double avg=0, vol=0;
+      for(int i=0;i<PositionsTotal();i++){
+         string sym=PositionGetSymbol(i);
+         if(sym==_Symbol && PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_BUY){
+            double v=PositionGetDouble(POSITION_VOLUME);
+            avg += PositionGetDouble(POSITION_PRICE_OPEN)*v; vol+=v;
+         }
+      }
+      if(vol>0) avg/=vol; else avg=ask;
+      g_nextAdd = avg + InpAddStepN * g_tradeN;
+      // borra pendientes contrarias
+      CancelPendingsByPrefix("TurtleV2 S-");
+   }
+   if(!wasShort && isShort){
+      g_tradeN = GetATR(1);
+      g_unitsAdded = posUnits>0? posUnits:1;
+      double avg=0, vol=0;
+      for(int j=0;j<PositionsTotal();j++){
+         string sym=PositionGetSymbol(j);
+         if(sym==_Symbol && PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_SELL){
+            double v=PositionGetDouble(POSITION_VOLUME);
+            avg += PositionGetDouble(POSITION_PRICE_OPEN)*v; vol+=v;
+         }
+      }
+      if(vol>0) avg/=vol; else avg=bid;
+      g_nextAdd = avg - InpAddStepN * g_tradeN;
+      CancelPendingsByPrefix("TurtleV2 L-");
+   }
+
+   // === PIRAMIDACIÓN: coloca pendientes de add ===
+   if(isLong && g_tradeN>0 && g_unitsAdded<InpMaxUnits && posUnits==g_unitsAdded && g_nextAdd>0.0)
+   {
+      // si no existe ya un add pendiente, colócalo
+      if(!PendingExists(ORDER_TYPE_BUY_STOP,"TurtleV2 L-ADD"))
+      {
+         double lotsAdd = CalcLotsByRisk(g_nextAdd,true,N0,riskUSD);
+         double sl = g_nextAdd - InpStopMultN*N0;
+         PlaceStopPending(ORDER_TYPE_BUY_STOP, lotsAdd, g_nextAdd,
+                          StringFormat("TurtleV2 L-ADD%d", g_unitsAdded+1), sl);
+      }
+   }
+   if(isShort && g_tradeN>0 && g_unitsAdded<InpMaxUnits && posUnits==g_unitsAdded && g_nextAdd>0.0)
+   {
+      if(!PendingExists(ORDER_TYPE_SELL_STOP,"TurtleV2 S-ADD"))
+      {
+         double lotsAdd = CalcLotsByRisk(g_nextAdd,false,N0,riskUSD);
+         double sl = g_nextAdd + InpStopMultN*N0;
+         PlaceStopPending(ORDER_TYPE_SELL_STOP, lotsAdd, g_nextAdd,
+                          StringFormat("TurtleV2 S-ADD%d", g_unitsAdded+1), sl);
+      }
+   }
+
+   // Si se llenó un add (posUnits aumentó), avanza el nextAdd
+   if(isLong && g_tradeN>0 && posUnits>g_unitsAdded){
+      while(g_unitsAdded<posUnits){ g_unitsAdded++; g_nextAdd += InpAddStepN*g_tradeN; }
+      // limpia add pendiente antiguo
+      CancelPendingsByPrefix("TurtleV2 L-ADD");
+   }
+   if(isShort && g_tradeN>0 && posUnits>g_unitsAdded){
+      while(g_unitsAdded<posUnits){ g_unitsAdded++; g_nextAdd -= InpAddStepN*g_tradeN; }
+      CancelPendingsByPrefix("TurtleV2 S-ADD");
+   }
+
+   // === EXITS / Trailing por canal & 2N desde avg ===
+   if(isLong)
+   {
+      double avg=0.0, vol=0.0;
+      for(int i=0;i<PositionsTotal();i++){
+         string sym=PositionGetSymbol(i);
+         if(sym==_Symbol && PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_BUY){
+            double v=PositionGetDouble(POSITION_VOLUME);
+            avg += PositionGetDouble(POSITION_PRICE_OPEN)*v; vol+=v;
+         }
+      }
+      if(vol>0) avg/=vol; else avg=ask;
+      double useN = (g_tradeN>0? g_tradeN : N0);
+      double stopInit  = avg - InpStopMultN * useN;
+      double stopTrail = lowerExit;
+      double newSL     = Max2(stopInit, stopTrail);
+      ModifySL(ORDER_TYPE_BUY, newSL);
+   }
+   if(isShort)
+   {
+      double avg=0.0, vol=0.0;
+      for(int j=0;j<PositionsTotal();j++){
+         string sym=PositionGetSymbol(j);
+         if(sym==_Symbol && PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_SELL){
+            double v=PositionGetDouble(POSITION_VOLUME);
+            avg += PositionGetDouble(POSITION_PRICE_OPEN)*v; vol+=v;
+         }
+      }
+      if(vol>0) avg/=vol; else avg=bid;
+      double useN = (g_tradeN>0? g_tradeN : N0);
+      double stopInit  = avg + InpStopMultN * useN;
+      double stopTrail = upperExit;
+      double newSL     = Min2(stopInit, stopTrail);
+      ModifySL(ORDER_TYPE_SELL, newSL);
+   }
+
+   // === Cierre de posiciones: refrescar flag 20/55 y limpiar pendientes ===
+   if(isNewBar){
+      bool stillLong  = (CountPositions(ORDER_TYPE_BUY)>0);
+      bool stillShort = (CountPositions(ORDER_TYPE_SELL)>0);
+      if( (wasLong && !stillLong) || (wasShort && !stillShort) ){
+         UpdateLastTradeLossFlag();
+         g_tradeN=0; g_nextAdd=0; g_unitsAdded=0;
+         // limpiar add pendings
+         CancelPendingsByPrefix("TurtleV2 L-ADD");
+         CancelPendingsByPrefix("TurtleV2 S-ADD");
+      }
+      wasLong=stillLong; wasShort=stillShort;
+   }
+}
