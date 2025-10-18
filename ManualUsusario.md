@@ -458,6 +458,3 @@ stopShort= min( avg + stopMultN*useN , upperExit )
 Este proyecto implementa una reinterpretación moderna del sistema **Turtle Trading** con prácticas **cuantitativas e institucionales**.
 Contribuciones, issues y PRs son bienvenidos.
 
----
-
-```
