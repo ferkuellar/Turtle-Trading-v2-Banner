@@ -22,6 +22,7 @@ Sin embargo, para interpretación práctica se expresan también como **porcenta
 **Fórmulas de conversión:**
 
 <img src="https://latex.codecogs.com/svg.image?SL%25%20=%20%5Cleft(%5Cfrac%7BSL_%7BUSD%7D%7D%7BPrecio_%7BEntrada%7D%7D%5Cright)%20%5Ctimes%20100" alt="SL formula" /><br>
+
 <img src="https://latex.codecogs.com/svg.image?TP%25%20=%20%5Cleft(%5Cfrac%7BTP_%7BUSD%7D%7D%7BPrecio_%7BEntrada%7D%7D%5Cright)%20%5Ctimes%20100" alt="TP formula" />
 
 </div>
