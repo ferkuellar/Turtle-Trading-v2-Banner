@@ -13,6 +13,8 @@
 
 **Codigo MQL5:** [Codigo MQL5](Turtle.mql5)
 
+**BackTest XAUUSD 1D:** [BackTest PDF](BackTestTurtle.pdf)
+
 ## 🎓 Introducción
 
 El presente documento constituye la exposición técnica e institucional del sistema **Turtle Trading v2 — Rebalanced Long & Short [FK]**, una reinterpretación moderna del legendario método de *Richard Dennis* y *William Eckhardt*, originalmente concebido en la década de los ochenta para demostrar que la rentabilidad sistemática puede ser enseñada, medida y replicada.
