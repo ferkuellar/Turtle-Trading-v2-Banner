@@ -34,11 +34,10 @@ Su propósito no es solo replicar la estrategia, sino **reconstruirla con precis
 
 A nivel matemático, el sistema se basa en:
 
-<div align="center">
+<p align="center">
+  <img src="https://latex.codecogs.com/svg.image?%5Ctextbf%7BQ%7D%20=%20%5Cfrac%7BA%20%5Ctimes%20r%7D%7BATR%20%5Ctimes%20k%7D" alt="Q Formula" />
+</p>
 
-<b>Q</b> = (A × r) / (ATR × k)
-
-</div>
 
 
 donde \(L\) corresponde a 20 o 55 períodos según la condición de la **última operación (loss/win)**, siguiendo el principio original de Dennis: *“Reduce la sensibilidad tras una pérdida, expande la exposición tras una ganancia.”*
@@ -76,9 +75,10 @@ Este comportamiento genera **asimetría adaptativa** que suaviza drawdowns y est
 
 El tamaño de posición se determina mediante:
 
-\[
-Q = \frac{A \cdot r}{ATR \cdot k}
-\]
+<p align="center">
+  <img src="https://latex.codecogs.com/svg.image?Q%20=%20%5Cfrac%7BA%20%5Ccdot%20r%7D%7BATR%20%5Ccdot%20k%7D" alt="Q formula" />
+</p>
+
 
 donde:
 - \(A\) es el capital base o nominal,
